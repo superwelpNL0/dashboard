@@ -162,6 +162,11 @@ mark{background:rgba(232,176,79,.3);color:var(--tx);border-radius:4px;padding:0 
 .mtxt.clamp{display:-webkit-box;-webkit-line-clamp:6;-webkit-box-orient:vertical;overflow:hidden}
 .linkbtn{background:none;border:0;color:var(--ac);cursor:pointer;padding:6px 0 0;font-weight:600;font-size:13.5px}
 .mact{display:flex;gap:2px;flex:none}
+.mphotos{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:9px;margin-top:12px}
+.mphoto{position:relative;display:block;min-width:0}
+.mphoto img{display:block;width:100%;height:150px;object-fit:cover;border-radius:9px;border:1px solid var(--line2);cursor:zoom-in}
+.mphoto .iconbtn{position:absolute;right:4px;top:4px;background:rgba(15,18,24,.85);color:var(--tx)}
+.mphoto .iconbtn:hover{color:var(--rose)}
 
 /* scenario's */
 .srow{position:relative;display:flex;gap:14px;padding:16px 18px;background:var(--s1);border:1px solid var(--line);border-radius:14px;margin-bottom:12px;align-items:flex-start;transition:border-color .15s}
@@ -207,6 +212,7 @@ dialog::backdrop{background:rgba(6,8,12,.75);backdrop-filter:blur(3px)}
 <main id="app"></main>
 <dialog id="dlg"></dialog>
 <input type="file" id="fi" accept="image/*" hidden>
+<input type="file" id="msgfi" accept="image/*" multiple hidden>
 <input type="file" id="fimport" accept="application/json,.json" hidden>
 <div id="toast" role="status"></div>
 
@@ -258,7 +264,7 @@ const CATS=[['gesprek','Gesprek'],['gezegd','Gezegd tegen iemand'],['afspraak','
 const CATCOL={gesprek:'#9db8ff',gezegd:'#c4a6ff',afspraak:'#e8b04f',gebeurtenis:'#6fcfbd',relatie:'#f092b4',herinnering:'#b9cd7c'};
 const catName=k=>(CATS.find(c=>c[0]===k)||['','Bericht'])[1];
 const newChar=(o={})=>({id:uid(),name:'',nick:'',age:'',birth:'',short:'',hobbies:'',personality:'',job:'',background:'',backstory:'',extra:'',notes:'',photo:null,relations:[],messages:[],fav:false,created:Date.now(),updated:Date.now(),opened:0,...o});
-const newMsg=(o={})=>({id:uid(),date:today(),title:'',cat:'gesprek',who:'',body:'',created:Date.now(),...o});
+const newMsg=(o={})=>({id:uid(),date:today(),title:'',cat:'gesprek',who:'',body:'',images:[],created:Date.now(),...o});
 const newScen=(o={})=>({id:uid(),charId:'',title:'',desc:'',backstory:'',events:'',involved:[],others:'',keyMessages:'',agreements:'',conflicts:'',secrets:'',notes:'',status:'',last:'',next:'',created:Date.now(),updated:Date.now(),...o});
 const find=(k,id)=>(k==='c'?S.chars:S.scens).find(x=>x.id===id);
 const scensOf=cid=>S.scens.filter(s=>s.charId===cid);
@@ -428,9 +434,10 @@ function msgHtml(c,m){
   const long=(m.body||'').length>380||(m.body||'').split('\n').length>6;
   return `<article class="msg" id="m-${m.id}"><div class="mdate">${esc(fmtShort(m.date))}</div>
   <div class="mcard" style="--cc:${CATCOL[m.cat]||'var(--ac)'}"><header><div><span class="catp">${esc(catName(m.cat))}</span><h3>${esc(m.title||'Zonder titel')}</h3></div>
-  <div class="mact"><button class="iconbtn" data-act="msg-edit" data-id="${c.id}" data-m="${m.id}" aria-label="Bericht bewerken">${ic('edit')}</button><button class="iconbtn del" data-act="msg-del" data-id="${c.id}" data-m="${m.id}" aria-label="Bericht verwijderen">${ic('trash')}</button></div></header>
+  <div class="mact"><button class="iconbtn" data-act="msg-photo-add" data-id="${c.id}" data-m="${m.id}" aria-label="Foto's of screenshots toevoegen" title="Foto's/screenshots toevoegen">${ic('camera')}</button><button class="iconbtn" data-act="msg-edit" data-id="${c.id}" data-m="${m.id}" aria-label="Bericht bewerken">${ic('edit')}</button><button class="iconbtn del" data-act="msg-del" data-id="${c.id}" data-m="${m.id}" aria-label="Bericht verwijderen">${ic('trash')}</button></div></header>
   ${m.who?`<div class="mwho">Met of tegen: ${esc(m.who)}</div>`:''}
   ${m.body?`<div class="mtxt${long?' clamp':''}">${esc(m.body)}</div>${long?`<button class="linkbtn" data-act="msg-more">Lees meer</button>`:''}`:''}
+  ${(m.images||[]).length?`<div class="mphotos">${m.images.map(iid=>IMG.get(iid)?`<div class="mphoto"><img src="${IMG.get(iid)}" alt="Bijgevoegd screenshot of foto" data-act="msg-photo-view" data-img="${iid}"><button class="iconbtn del" data-act="msg-photo-del" data-id="${c.id}" data-m="${m.id}" data-img="${iid}" aria-label="Bijgevoegde foto verwijderen">${ic('x')}</button></div>`:'').join('')}</div>`:''}
   </div></article>`;
 }
 function viewChar(c,tab){
@@ -536,6 +543,21 @@ app.addEventListener('change',e=>{
 
 /* ---------- acties ---------- */
 let pending=null;
+let pendingMsg=null;
+$('#msgfi').addEventListener('change',async e=>{
+  const files=[...e.target.files];e.target.value='';
+  const target=pendingMsg;pendingMsg=null;
+  if(!files.length||!target)return;
+  const c=find('c',target.cid),m=c&&(c.messages||[]).find(x=>x.id===target.mid);
+  if(!c||!m)return;
+  m.images=m.images||[];
+  for(const f of files){
+    if(!f.type.startsWith('image/'))continue;
+    try{const data=await fileToData(f,1400),iid=uid();await putImg(iid,data);m.images.push(iid)}
+    catch(err){toast('Een afbeelding kon niet worden geladen')}
+  }
+  touch(c);render();toast('Foto’s/screenshots toegevoegd aan bericht');
+});
 $('#fi').addEventListener('change',async e=>{
   const f=e.target.files[0];e.target.value='';
   if(!f||!pending)return;const id=pending;pending=null;
@@ -646,6 +668,9 @@ document.addEventListener('click',async e=>{
   case 'rel-add':{const c=find('c',id);(c.relations=c.relations||[]).push({id:uid(),name:'',type:'Vriend(in)',note:''});touch(c);render();break}
   case 'rel-del':{const c=find('c',id);if(await confirmDlg('Relatie verwijderen?','Deze relatie wordt definitief verwijderd.')){c.relations=c.relations.filter(x=>x.id!==el.dataset.r);touch(c);render()}break}
   case 'msg-add':msgDialog(find('c',id),null);break;
+  case 'msg-photo-add':{pendingMsg={cid:id,mid:el.dataset.m};$('#msgfi').click();break}
+  case 'msg-photo-del':{const c=find('c',id),m=c&&(c.messages||[]).find(x=>x.id===el.dataset.m),iid=el.dataset.img;if(m&&await confirmDlg('Bijgevoegde afbeelding verwijderen?','De afbeelding wordt uit dit bericht verwijderd.')){m.images=(m.images||[]).filter(x=>x!==iid);await delImg(iid);touch(c);render();toast('Afbeelding verwijderd')}break}
+  case 'msg-photo-view':{const src=IMG.get(el.dataset.img);if(src){const w=window.open();if(w){w.document.write('<title>Bijgevoegde afbeelding</title><img src="'+src+'" style="max-width:100%;height:auto;display:block;margin:auto">');w.document.close()}}break}
   case 'msg-edit':{const c=find('c',id);msgDialog(c,c.messages.find(m=>m.id===el.dataset.m));break}
   case 'msg-del':{const c=find('c',id);const m=c.messages.find(x=>x.id===el.dataset.m);if(await confirmDlg('Bericht verwijderen?',`“${esc(m.title||'Zonder titel')}” wordt definitief verwijderd.`)){c.messages=c.messages.filter(x=>x.id!==m.id);touch(c);render();toast('Bericht verwijderd')}break}
   case 'msg-more':{const t=el.previousElementSibling;const open=t.classList.toggle('clamp');el.textContent=open?'Lees meer':'Minder tonen';break}
